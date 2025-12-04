@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>LingoPalace</title>
+    <style>
+        :root {
+            --primary: #9FFCE6;
+            --safe-top: env(safe-area-inset-top);
+            --safe-bottom: env(safe-area-inset-bottom);
+        }
+
+        html, body {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            font-family: -apple-system, sans-serif;
+            -webkit-user-select: none; user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* 修复核心：背景层使用 fixed 强制定位，解决底部黑条 */
+        #stage {
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100vw; 
+            height: 100vh; /* 兜底 */
+            height: 100dvh; /* 动态高度 */
+            bottom: 0; /* 强制拉伸到底 */
+            
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: cover; 
+            z-index: 1;
+        }
+
+        /* 顶部栏修复：不再使用 width:100%，改用 left:0 right:0 防止图标被挤出 */
+        #header {
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            right: 0; /* 👈 关键修复 */
+            
+            padding: calc(15px + var(--safe-top)) 20px 15px;
+            z-index: 10; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            box-sizing: border-box; /* 👈 确保 padding 不会撑大容器 */
+            pointer-events: none;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.3), transparent);
+        }
+
+        .header-btn {
+            pointer-events: auto; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); 
+            color: white; padding: 8px 12px; border-radius: 20px; font-size: 13px; backdrop-filter: blur(10px);
+            white-space: nowrap; /* 防止按钮文字换行 */
+        }
+        .room-title { font-weight: 800; font-size: 20px; color: white; text-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+
+        /* 底部导航栏：保留安全距离 */
+        #tab-bar {
+            position: absolute;
+            bottom: calc(10px + var(--safe-bottom)); 
+            left: 15px; right: 15px;
+            height: 65px;
+            background: rgba(255, 255, 255, 0.92); 
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            display: flex; justify-content: space-around; align-items: center;
+            z-index: 20;
+        }
+
+        .tab-item {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #b2bec3; font-size: 10px; gap: 3px;
+            width: 20%; cursor: pointer; height: 100%;
+        }
+        .tab-icon { font-size: 24px; transition: all 0.2s; filter: grayscale(100%); opacity: 0.5; }
+        .tab-item.active { color: #00b894; font-weight: 600; }
+        .tab-item.active .tab-icon { transform: scale(1.1) translateY(-2px); filter: grayscale(0%); opacity: 1; }
+
+        /* 钉子 */
+        .pin {
+            position: absolute; width: 44px; height: 44px;
+            background: rgba(255, 255, 255, 0.25);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            font-size: 22px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            backdrop-filter: blur(4px); transform: translate(-50%, -50%); z-index: 5;
+        }
+        .pin:active { transform: translate(-50%, -50%) scale(0.9); background: var(--primary); }
+        .pin-label {
+            position: absolute; top: 110%; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 6px;
+            font-size: 12px; white-space: nowrap; pointer-events: none;
+            opacity: 0; transition: opacity 0.2s;
+        }
+        .show-labels .pin-label { opacity: 1; }
+
+        /* 底部抽屉 */
+        #sheet-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 99; opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        #sheet-overlay.active { opacity: 1; pointer-events: auto; }
+
+        #bottom-sheet {
+            position: fixed; bottom: 0; left: 0; width: 100%;
+            background: #fff; 
+            border-radius: 24px 24px 0 0;
+            padding: 25px 20px calc(30px + var(--safe-bottom)); 
+            box-sizing: border-box; z-index: 100;
+            transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+        }
+        #bottom-sheet.active { transform: translateY(0); }
+
+        .sheet-handle { width: 40px; height: 4px; background: #e0e0e0; border-radius: 2px; margin: 0 auto 20px; }
+        .form-row { display: flex; gap: 10px; margin-bottom: 15px; }
+        .input-box {
+            background: #f4f6f8; border: 2px solid transparent;
+            color: #333; padding: 14px; border-radius: 14px;
+            font-size: 16px; width: 100%; outline: none; -webkit-appearance: none;
+        }
+        .input-box:focus { background: #fff; border-color: var(--primary); }
+        .icon-select { width: 60px; text-align: center; }
+
+        .btn { flex: 1; padding: 16px; border-radius: 14px; border: none; font-weight: 700; font-size: 16px; cursor: pointer; }
+        .btn-primary { background: var(--primary); color: #2d3436; }
+        .btn-danger { background: #ff7675; color: white; flex: 0.3; }
+        #file-input { display: none; }
+        #loading {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8); color: white; padding: 15px 25px;
+            border-radius: 20px; z-index: 200; display: none; font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">处理中...</div>
+    <input type="file" id="file-input" accept="image/*">
+
+    <div id="header">
+        <div class="room-title" id="room-title">客厅</div>
+        <div style="display:flex; gap:10px; flex-shrink: 0;">
+            <button class="header-btn" onclick="triggerUpload()">📷 换图</button>
+            <button class="header-btn" onclick="toggleLabels()">👁️</button>
+        </div>
+    </div>
+
+    <div id="stage"></div>
+
+    <div id="tab-bar">
+        <div class="tab-item active" onclick="changeRoom('living', this)">
+            <span class="tab-icon">🛋️</span><span>客厅</span>
+        </div>
+        <div class="tab-item" onclick="changeRoom('kitchen', this)">
+            <span class="tab-icon">🍳</span><span>厨房</span>
+        </div>
+        <div class="tab-item" onclick="changeRoom('bedroom', this)">
+            <span class="tab-icon">🛏️</span><span>卧室</span>
+        </div>
+        <div class="tab-item" onclick="changeRoom('toilet', this)">
+            <span class="tab-icon">🚽</span><span>卫浴</span>
+        </div>
+        <div class="tab-item" onclick="changeRoom('balcony', this)">
+            <span class="tab-icon">☀️</span><span>阳台</span>
+        </div>
+    </div>
+
+    <div id="sheet-overlay" onclick="closeSheet()"></div>
+    <div id="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="form-row">
+            <input type="text" class="input-box icon-select" id="input-icon" placeholder="📍">
+            <input type="text" class="input-box" id="input-word" placeholder="输入单词...">
+        </div>
+        <div class="form-row">
+            <textarea class="input-box" id="input-hook" style="height:80px; resize:none" placeholder="联想故事..."></textarea>
+        </div>
+        <div class="form-row">
+            <button class="btn btn-danger" id="btn-delete" onclick="deletePin()" style="display:none;">删</button>
+            <button class="btn btn-primary" onclick="savePin()">保存</button>
+        </div>
+    </div>
+
+<script>
+    // 默认配置
+    const defaultRooms = {
+        'living':  { name: '客厅', bg: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80' },
+        'kitchen': { name: '厨房', bg: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=800&q=80' },
+        'bedroom': { name: '卧室', bg: 'https://images.unsplash.com/photo-1616594039964-40891a940c75?auto=format&fit=crop&w=800&q=80' },
+        'toilet':  { name: '卫生间', bg: 'https://images.unsplash.com/photo-1584622050111-993a426fbf0a?auto=format&fit=crop&w=800&q=80' },
+        'balcony': { name: '阳台', bg: 'https://images.unsplash.com/photo-1560185007-cde436f6a4d0?auto=format&fit=crop&w=800&q=80' }
+    };
+
+    let userRooms = JSON.parse(localStorage.getItem('my_custom_rooms')) || defaultRooms;
+    let memories = JSON.parse(localStorage.getItem('lingo_memories_v2')) || [];
+    let currentRoom = 'living', editingId = null, tempX = 0, tempY = 0;
+
+    const stage = document.getElementById('stage');
+    const fileInput = document.getElementById('file-input');
+
+    changeRoom('living', document.querySelector('.tab-item'));
+
+    function triggerUpload() { fileInput.click(); }
+
+    fileInput.addEventListener('change', function(e) {
+        if (this.files && this.files[0]) {
+            document.getElementById('loading').style.display = 'block';
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const MAX_SIZE = 1200; 
+                    let width = img.width, height = img.height;
+                    if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
+                    else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                    canvas.width = width; canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                    
+                    try {
+                        userRooms[currentRoom].bg = dataUrl;
+                        localStorage.setItem('my_custom_rooms', JSON.stringify(userRooms));
+                        stage.style.backgroundImage = `url('${dataUrl}')`;
+                        document.getElementById('loading').style.display = 'none';
+                    } catch (err) {
+                        document.getElementById('loading').style.display = 'none';
+                        alert('图片处理失败');
+                    }
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(this.files[0]);
+        }
+    });
+
+    stage.addEventListener('click', (e) => {
+        if (e.target !== stage) return;
+        const rect = stage.getBoundingClientRect();
+        tempX = ((e.clientX - rect.left) / rect.width) * 100;
+        tempY = ((e.clientY - rect.top) / rect.height) * 100;
+        openSheet(null);
+    });
+
+    function changeRoom(roomId, tabEl) {
+        currentRoom = roomId;
+        document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+        if(tabEl) tabEl.classList.add('active');
+        document.getElementById('room-title').innerText = userRooms[roomId].name;
+        stage.style.backgroundImage = `url('${userRooms[roomId].bg}')`;
+        renderPins();
+    }
+
+    function renderPins() {
+        stage.innerHTML = '';
+        memories.forEach(m => {
+            if (m.room !== currentRoom) return;
+            const pin = document.createElement('div');
+            pin.className = 'pin';
+            pin.style.left = m.x + '%';
+            pin.style.top = m.y + '%';
+            pin.innerHTML = `${m.icon}<div class="pin-label">${m.word}</div>`;
+            pin.addEventListener('click', (e) => { e.stopPropagation(); openSheet(m.id); });
+            stage.appendChild(pin);
+        });
+    }
+
+    function openSheet(id) {
+        editingId = id;
+        const sheet = document.getElementById('bottom-sheet');
+        const overlay = document.getElementById('sheet-overlay');
+        const btnDelete = document.getElementById('btn-delete');
+        const iWord = document.getElementById('input-word');
+        const iIcon = document.getElementById('input-icon');
+        const iHook = document.getElementById('input-hook');
+
+        if (id === null) {
+            iWord.value = ''; iIcon.value = '📌'; iHook.value = '';
+            btnDelete.style.display = 'none';
+            setTimeout(() => iWord.focus(), 100);
+        } else {
+            const m = memories.find(x => x.id === id);
+            if(m) {
+                iWord.value = m.word; iIcon.value = m.icon; iHook.value = m.hook;
+                btnDelete.style.display = 'block';
+            }
+        }
+        overlay.classList.add('active');
+        sheet.classList.add('active');
+    }
+
+    function closeSheet() {
+        document.getElementById('bottom-sheet').classList.remove('active');
+        document.getElementById('sheet-overlay').classList.remove('active');
+        document.activeElement.blur();
+    }
+
+    function savePin() {
+        const word = document.getElementById('input-word').value.trim();
+        if (!word) return;
+        const icon = document.getElementById('input-icon').value || '📌';
+        const hook = document.getElementById('input-hook').value;
+        if (editingId === null) {
+            memories.push({ id: Date.now(), room: currentRoom, x: tempX, y: tempY, word: word, icon: icon, hook: hook });
+        } else {
+            const index = memories.findIndex(m => m.id === editingId);
+            if (index > -1) { memories[index].word = word; memories[index].icon = icon; memories[index].hook = hook; }
+        }
+        localStorage.setItem('lingo_memories_v2', JSON.stringify(memories));
+        renderPins(); closeSheet();
+    }
+    function deletePin() {
+        if (confirm('确定移除？')) {
+            memories = memories.filter(m => m.id !== editingId);
+            localStorage.setItem('lingo_memories_v2', JSON.stringify(memories));
+            renderPins(); closeSheet();
+        }
+    }
+    function toggleLabels() { stage.classList.toggle('show-labels'); }
+</script>
+</body>
+</html>
